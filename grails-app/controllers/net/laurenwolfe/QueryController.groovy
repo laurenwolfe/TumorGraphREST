@@ -3,21 +3,47 @@ package net.laurenwolfe
 //import grails.converters.JSON
 import groovy.json.JsonSlurper;
 import groovy.json.JsonOutput;
+import groovy.time.*
 
 class QueryController {
     //Specify scope-- otherwise, the class vars save state between requests (adding data on top of old requests)
     static scope = "request"
 
+    //benchmarking
+    def timeStart = new Date()
+
     //Paths to rexster REST API
+//    def rexsterURL = "192.168.99.100:8182"
     def rexsterURL = "http://glados49:8182"
     def gremlin = "/graphs/tumorgraph/tp/gremlin?script="
     def rexster = "/graphs/tumorgraph/"
     def edges = []
     def nodes = []
 
+
+    def index() {
+        def queryStr = params.query
+
+        queryGremlin(queryStr)
+    }
+
+    def newRoot() {
+        def id = params.id
+        getVertexById(id)
+        getVerticesById(id)
+        getEdgesById(id)
+        joinNodesAndEdges()
+    }
+
+    def getVertexById(id) {
+        def queryStr = "vertices/" + id
+
+        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + rexster + queryStr ).text )
+        makeVertex(queryResult.results[0])
+    }
+
     //This is hit by jQuery AJAX call, which passes query parameter via URL
-    def queryGremlin() {
-        def queryStr = params.query;
+    def queryGremlin(queryStr) {
 
         if(queryStr) {
             //get JSON response from Rexster based on query
@@ -33,14 +59,13 @@ class QueryController {
 
             if (count == 1 && type == "vertex") {
                 def id = queryResult.results[0]._id
-                def alchemyVertex = makeVertex(queryResult.results[0])
-                nodes.add(alchemyVertex)
+                makeVertex(queryResult.results[0])
                 getVerticesById(id)
                 getEdgesById(id)
                 joinNodesAndEdges()
             } else if (type == "vertex") {
                 def vertexIds = addVertices(queryResult.results)
-                findEdges(vertexIds)
+                compileEdges(vertexIds)
                 joinNodesAndEdges()
             } else if (type == "edge") {
                 def vertexIds = addEdges(queryResult.results)
@@ -100,36 +125,41 @@ class QueryController {
         return vertexIds
     }
 
-    //Pass a list of vertex ids, finds any edges between them, makes them
-    def findEdges(ids) {
-        ids.unique()
+    def compileEdges(vIds) {
+        def tempEdges = []
 
-        //Pop off the first id so that we can check it against those remaining in the list
-        def currId = ids.removeAt(0)
+        vIds.unique()
 
-        //Loop over all node id combinations, looking for edges
-        while(ids.size() > 0) {
-            for(def i = 0; i < ids.size(); i++) {
+        for(def i = 0; i < vIds.size; i++) {
+            def adjEdgeQuery = "vertices/" + vIds[i].toString() + "/bothE"
 
-                def boolQuery = "g.v(" + currId.toString() + ").both.retain([g.v(" + ids.get(i).toString() + ")]).hasNext()"
+            def edges = new JsonSlurper().parseText( new URL( rexsterURL + rexster + adjEdgeQuery ).text )
 
-                //Call to Rexster REST API
-                def hasEdge = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + boolQuery ).text )
-
-                //If an edge is found, push it into edges list
-                if(hasEdge.results[0]) {
-                    def edgeQuery = "g.v(" + currId.toString()  + ").bothE.as('x').bothV.retain([g.v(" +
-                            ids.get(i).toString()  + ")]).back('x')"
-
-                    def edge = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + edgeQuery ).text )
-
-                    makeEdge(edge.results[0])
-                }
-            }
-            currId = ids.removeAt(0)
+            tempEdges.addAll(edges.results)
         }
+
+        sortAndFilterEdges(tempEdges)
     }
 
+    def sortAndFilterEdges(tempEdges) {
+        //Sort edge list
+
+        tempEdges.sort { a, b ->
+            a._id <=> b._id
+        }
+
+        //compare adjacent (sorted) edges. If match is found and this edge id hasn't already been added, parse edge. Increment counter.
+        for(def i = 0; i < tempEdges.size; i++) {
+            if(tempEdges[i].equals(tempEdges[i+1])) {
+                //parse edge
+                makeEdge(tempEdges[i])
+                //move both of these out of the queue
+                i = i + 2
+            } else {
+                i++
+            }
+        }
+    }
 
     /****************************************
      * Functions for query returning EDGE(S)
@@ -156,7 +186,7 @@ class QueryController {
         def queryStr
 
         vertexIds.each{ vertexId ->
-            queryStr = rexsterURL + rexster + "vertices/" + vertexId.toString()
+            queryStr = "vertices/" + vertexId.toString()
 
             def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + rexster + queryStr ).text )
 
@@ -214,7 +244,13 @@ class QueryController {
 
     //Build the list of all nodes and edges in alchemy format and convert to graphJSON
     def joinNodesAndEdges() {
-        def alchemyList = [nodes: nodes, edges: edges]
+
+        //Benchmarking
+        def timeStop = new Date()
+        TimeDuration duration = TimeCategory.minus(timeStop, timeStart)
+        def dur = "runtime: " + duration.toString()
+
+        def alchemyList = [comment: dur, nodes: nodes, edges: edges]
 
         def json = JsonOutput.toJson(alchemyList)
 
