@@ -1,8 +1,8 @@
 package net.laurenwolfe
 
 //import grails.converters.JSON
-import groovy.json.JsonSlurper;
-import groovy.json.JsonOutput;
+import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 import groovy.time.*
 
 class QueryController {
@@ -16,29 +16,20 @@ class QueryController {
 //    def rexsterURL = "192.168.99.100:8182"
     def rexsterURL = "http://glados49:8182"
     def gremlin = "/graphs/tumorgraph/tp/gremlin?script="
-    def rexster = "/graphs/tumorgraph/"
     def edges = []
     def nodes = []
 
-
     def index() {
         def queryStr = params.query
-
         queryGremlin(queryStr)
     }
 
-    def newRoot() {
-        def id = params.id
-        getVertexById(id)
-        getVerticesById(id)
-        getEdgesById(id)
-        joinNodesAndEdges()
-    }
-
     def getVertexById(id) {
-        def queryStr = "vertices/" + id
+        //def queryStr = "vertices/" + id
+        def queryStr = "g.v("+ id +")"
 
-        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + rexster + queryStr ).text )
+
+        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + queryStr ).text )
         makeVertex(queryResult.results[0])
     }
 
@@ -54,21 +45,23 @@ class QueryController {
              * Multiple vertices means we take those vertices and look for any edges between them.
              * One or more edges means we take those edges and build out their vertices.
              */
+
             def count = queryResult.results.size()
             def type = queryResult.results[0]._type
+            def vertexIds
 
             if (count == 1 && type == "vertex") {
                 def id = queryResult.results[0]._id
                 makeVertex(queryResult.results[0])
-                getVerticesById(id)
-                getEdgesById(id)
+                vertexIds = getVerticesById(id)
+                getEdgesById(id, vertexIds)
                 joinNodesAndEdges()
             } else if (type == "vertex") {
-                def vertexIds = addVertices(queryResult.results)
+                vertexIds = addVertices(queryResult.results)
                 compileEdges(vertexIds)
                 joinNodesAndEdges()
             } else if (type == "edge") {
-                def vertexIds = addEdges(queryResult.results)
+                vertexIds = addEdges(queryResult.results)
                 addVerticesFromList(vertexIds)
                 joinNodesAndEdges()
             } else {
@@ -77,6 +70,7 @@ class QueryController {
         } else {
             render "Error, no query provided!"
         }
+
     }
 
     /***********************************************
@@ -86,25 +80,38 @@ class QueryController {
 
     //Provided with a vertex id, get all of its adjacent vertices and add to nodes list.
     def getVerticesById(id) {
-        def queryStr = "vertices/" + id + "/both"
+        def vertexIds = []
 
-        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + rexster + queryStr ).text )
+        def queryStr = "g.v("+ id +").both[0..25]"
+
+        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + queryStr ).text )
 
         //translate results to alchemy format
         queryResult.results.each{ vertex ->
+            vertexIds.add(vertex._id)
             makeVertex(vertex)
         }
+
+        return vertexIds
     }
 
     //Provided with a vertex id, get all of its incoming and outgoing edges.
-    def getEdgesById(id) {
-        def queryStr = "vertices/" + id + "/bothE"
+    def getEdgesById(id, vertices) {
 
-        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + rexster + queryStr ).text )
+        vertices.add(id)
+
+        def queryStr = "g.v("+ id +").bothE"
+
+        def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + queryStr ).text )
+
 
         //translate results to alchemy format
         queryResult.results.each{ edge ->
-            makeEdge(edge)
+
+            if(vertices.indexOf(edge._inV) != -1 && vertices.indexOf(edge._outV) != -1) {
+                makeEdge(edge)
+            }
+
         }
     }
 
@@ -131,9 +138,10 @@ class QueryController {
         vIds.unique()
 
         for(def i = 0; i < vIds.size; i++) {
-            def adjEdgeQuery = "vertices/" + vIds[i].toString() + "/bothE"
+            def adjEdgeQuery = "g.v("+ vIds[i].toString() +").bothE"
 
-            def edges = new JsonSlurper().parseText( new URL( rexsterURL + rexster + adjEdgeQuery ).text )
+
+            def edges = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + adjEdgeQuery ).text )
 
             tempEdges.addAll(edges.results)
         }
@@ -186,9 +194,12 @@ class QueryController {
         def queryStr
 
         vertexIds.each{ vertexId ->
-            queryStr = "vertices/" + vertexId.toString()
 
-            def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + rexster + queryStr ).text )
+            //queryStr = "vertices/" + vertexId.toString()
+            queryStr = "g.v("+ vertexId.toString() +")"
+
+
+            def queryResult = new JsonSlurper().parseText( new URL( rexsterURL + gremlin + queryStr ).text )
 
             makeVertex(queryResult.results)
         }
