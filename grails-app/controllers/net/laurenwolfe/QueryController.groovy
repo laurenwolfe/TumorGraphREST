@@ -13,9 +13,9 @@ class QueryController {
     def timeStart = new Date()
 
     //Paths to rexster REST API
-//    def rexsterURL = "192.168.99.100:8182"
-    def rexsterURL = "http://glados49:8182"
-    def gremlin = "/graphs/tumorgraph/tp/gremlin?script="
+    def rexsterURL = "192.168.99.100:8182"
+//    def rexsterURL = "http://glados49:8182"
+    def gremlin = "/graphs/tumorgr/tp/gremlin?script="
     def edges = []
     def nodes = []
 

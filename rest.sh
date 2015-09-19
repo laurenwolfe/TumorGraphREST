@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 grails war --profile=web
-docker build --rm -t lulumialu/rest .
-docker push lulumialu/rest
-say "complete"
+docker build -t lulumialu/rest .
+docker run -d -p 8080:8080
+#docker push lulumialu/rest
+#say "complete"
